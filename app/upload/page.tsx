@@ -16,11 +16,19 @@ import {
   ClipboardList,
   CheckCircle,
   AlertTriangle,
-  X
+  X,
+  Sparkles,
+  Eye,
+  Bug
 } from 'lucide-react';
 import { useDataStore } from '@/lib/store';
 import { fileParser } from '@/lib/file-parser';
+import { aiParser } from '@/lib/ai-parser';
 import { validationEngine } from '@/lib/validation';
+import { advancedValidationEngine } from '@/lib/advanced-validation';
+import { DataGrid } from '@/components/data-grid/data-grid';
+import { NaturalLanguageSearch } from '@/components/natural-language/nl-search';
+import { FileUploadDebug } from '@/components/upload/file-upload-debug';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -37,6 +45,7 @@ interface FileUploadProps {
 function FileUpload({ entityType, title, description, icon: Icon, onUpload, isUploading, uploadedCount }: FileUploadProps) {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [useAIParsing, setUseAIParsing] = useState(true);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -97,6 +106,20 @@ function FileUpload({ entityType, title, description, icon: Icon, onUpload, isUp
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id={`ai-parsing-${entityType}`}
+              checked={useAIParsing}
+              onChange={(e) => setUseAIParsing(e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor={`ai-parsing-${entityType}`} className="text-sm flex items-center gap-1">
+              <Sparkles className="h-3 w-3 text-purple-500" />
+              Use AI-powered parsing
+            </label>
+          </div>
+
           <div
             className={cn(
               "border-2 border-dashed rounded-lg p-6 text-center transition-colors",
@@ -114,6 +137,12 @@ function FileUpload({ entityType, title, description, icon: Icon, onUpload, isUp
             </div>
             <div className="text-sm text-gray-500 mb-4">
               Supports CSV and Excel files (.csv, .xlsx, .xls)
+              {useAIParsing && (
+                <div className="flex items-center justify-center gap-1 mt-1 text-purple-600">
+                  <Sparkles className="h-3 w-3" />
+                  <span>AI will intelligently map your columns</span>
+                </div>
+              )}
             </div>
             
             <input
@@ -180,6 +209,9 @@ export default function UploadPage() {
   } = useDataStore();
 
   const [uploadingEntity, setUploadingEntity] = useState<string | null>(null);
+  const [showDataGrids, setShowDataGrids] = useState(false);
+  const [aiParsingSuggestions, setAiParsingSuggestions] = useState<string[]>([]);
+  const [showDebugMode, setShowDebugMode] = useState(false);
 
   const uploadClients = async (file: File) => {
     setUploadingEntity('clients');
@@ -188,14 +220,22 @@ export default function UploadPage() {
 
     try {
       const rawData = await fileParser.parseFile(file);
+      setUploadProgress(25);
+      
+      // Use AI parsing for better column mapping
+      const aiResult = aiParser.parseWithAI(rawData, 'clients');
       setUploadProgress(50);
       
-      const clientData = fileParser.mapToClients(rawData);
+      const clientData = fileParser.mapToClients(aiResult.data);
       setClients(clientData);
       setUploadProgress(75);
       
-      const errors = validationEngine.validateClients(clientData);
-      setValidationErrors(errors);
+      // Run both basic and advanced validations
+      const basicErrors = validationEngine.validateClients(clientData);
+      const advancedErrors = advancedValidationEngine.validateAdvanced(clientData, workers, tasks);
+      setValidationErrors([...basicErrors, ...advancedErrors]);
+      
+      setAiParsingSuggestions(aiResult.suggestions);
       setUploadProgress(100);
       
     } finally {
@@ -212,14 +252,20 @@ export default function UploadPage() {
 
     try {
       const rawData = await fileParser.parseFile(file);
+      setUploadProgress(25);
+      
+      const aiResult = aiParser.parseWithAI(rawData, 'workers');
       setUploadProgress(50);
       
-      const workerData = fileParser.mapToWorkers(rawData);
+      const workerData = fileParser.mapToWorkers(aiResult.data);
       setWorkers(workerData);
       setUploadProgress(75);
       
-      const errors = validationEngine.validateWorkers(workerData);
-      setValidationErrors(errors);
+      const basicErrors = validationEngine.validateWorkers(workerData);
+      const advancedErrors = advancedValidationEngine.validateAdvanced(clients, workerData, tasks);
+      setValidationErrors([...basicErrors, ...advancedErrors]);
+      
+      setAiParsingSuggestions(aiResult.suggestions);
       setUploadProgress(100);
       
     } finally {
@@ -236,14 +282,20 @@ export default function UploadPage() {
 
     try {
       const rawData = await fileParser.parseFile(file);
-      setUploadProgress(40);
+      setUploadProgress(25);
       
-      const taskData = fileParser.mapToTasks(rawData);
+      const aiResult = aiParser.parseWithAI(rawData, 'tasks');
+      setUploadProgress(50);
+      
+      const taskData = fileParser.mapToTasks(aiResult.data);
       setTasks(taskData);
-      setUploadProgress(60);
+      setUploadProgress(75);
       
-      const errors = validationEngine.validateTasks(taskData, clients, workers);
-      setValidationErrors(errors);
+      const basicErrors = validationEngine.validateTasks(taskData, clients, workers);
+      const advancedErrors = advancedValidationEngine.validateAdvanced(clients, workers, taskData);
+      setValidationErrors([...basicErrors, ...advancedErrors]);
+      
+      setAiParsingSuggestions(aiResult.suggestions);
       setUploadProgress(100);
       
     } finally {
@@ -253,6 +305,38 @@ export default function UploadPage() {
     }
   };
 
+  const handleDebugFileProcessed = (data: any[], fileName: string) => {
+    // Determine entity type from filename or let user choose
+    const entityType = fileName.toLowerCase().includes('client') ? 'clients' :
+                      fileName.toLowerCase().includes('worker') ? 'workers' :
+                      fileName.toLowerCase().includes('task') ? 'tasks' : 'clients';
+    
+    try {
+      if (entityType === 'clients') {
+        const clientData = fileParser.mapToClients(data);
+        setClients(clientData);
+        const errors = validationEngine.validateClients(clientData);
+        setValidationErrors(errors);
+      } else if (entityType === 'workers') {
+        const workerData = fileParser.mapToWorkers(data);
+        setWorkers(workerData);
+        const errors = validationEngine.validateWorkers(workerData);
+        setValidationErrors(errors);
+      } else if (entityType === 'tasks') {
+        const taskData = fileParser.mapToTasks(data);
+        setTasks(taskData);
+        const errors = validationEngine.validateTasks(taskData, clients, workers);
+        setValidationErrors(errors);
+      }
+      
+      toast.success(`${entityType} data processed successfully!`);
+    } catch (error) {
+      toast.error(`Failed to process ${entityType}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const totalEntities = clients.length + workers.length + tasks.length;
+
   return (
     <MainLayout>
       <div className="space-y-6">
@@ -260,8 +344,28 @@ export default function UploadPage() {
           <div>
             <h2 className="text-2xl font-bold">Upload Data</h2>
             <p className="text-gray-600">
-              Upload your CSV or Excel files to get started with data transformation
+              Upload your CSV or Excel files with AI-powered parsing and real-time validation
             </p>
+          </div>
+          <div className="flex gap-2">
+            {totalEntities > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => setShowDataGrids(!showDataGrids)}
+                className="gap-2"
+              >
+                <Eye className="h-4 w-4" />
+                {showDataGrids ? 'Hide' : 'Show'} Data Grids
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => setShowDebugMode(!showDebugMode)}
+              className="gap-2"
+            >
+              <Bug className="h-4 w-4" />
+              {showDebugMode ? 'Hide' : 'Show'} Debug Mode
+            </Button>
           </div>
         </div>
 
@@ -277,13 +381,31 @@ export default function UploadPage() {
           </Alert>
         )}
 
-        <Tabs defaultValue="individual" className="space-y-4">
+        {aiParsingSuggestions.length > 0 && (
+          <Alert>
+            <Sparkles className="h-4 w-4" />
+            <AlertDescription>
+              <div className="space-y-2">
+                <strong>AI Parsing Insights:</strong>
+                <ul className="list-disc list-inside space-y-1">
+                  {aiParsingSuggestions.map((suggestion, index) => (
+                    <li key={index} className="text-sm">{suggestion}</li>
+                  ))}
+                </ul>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <Tabs defaultValue={showDebugMode ? "debug" : "upload"} className="space-y-4">
           <TabsList>
-            <TabsTrigger value="individual">Individual Upload</TabsTrigger>
-            <TabsTrigger value="batch">Batch Upload</TabsTrigger>
+            <TabsTrigger value="upload">File Upload</TabsTrigger>
+            <TabsTrigger value="debug">Debug Mode</TabsTrigger>
+            {totalEntities > 0 && <TabsTrigger value="grids">Data Grids</TabsTrigger>}
+            {totalEntities > 0 && <TabsTrigger value="search">Natural Language Search</TabsTrigger>}
           </TabsList>
 
-          <TabsContent value="individual" className="space-y-6">
+          <TabsContent value="upload" className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <FileUpload
                 entityType="clients"
@@ -315,76 +437,98 @@ export default function UploadPage() {
                 uploadedCount={tasks.length}
               />
             </div>
-          </TabsContent>
 
-          <TabsContent value="batch" className="space-y-6">
+            {/* Upload Guide */}
             <Card>
               <CardHeader>
-                <CardTitle>Batch Upload</CardTitle>
+                <CardTitle>Upload Guidelines</CardTitle>
                 <CardDescription>
-                  Upload multiple files at once for faster processing
+                  Follow these guidelines for best results with AI-powered parsing
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Alert>
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    Batch upload feature is coming soon. For now, please use individual upload.
-                  </AlertDescription>
-                </Alert>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <Users className="h-4 w-4" />
+                      Clients File
+                    </h4>
+                    <ul className="text-sm text-gray-600 space-y-1">
+                      <li>• Required: ClientID, ClientName, PriorityLevel (1-5)</li>
+                      <li>• Optional: RequestedTaskIDs, GroupTag, Email</li>
+                      <li>• AI can map various column names</li>
+                      <li>• Attributes can be JSON format</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <UserCheck className="h-4 w-4" />
+                      Workers File
+                    </h4>
+                    <ul className="text-sm text-gray-600 space-y-1">
+                      <li>• Required: WorkerID, WorkerName, Skills, AvailableSlots</li>
+                      <li>• Skills can be comma-separated</li>
+                      <li>• Include MaxLoadPerPhase</li>
+                      <li>• AI recognizes skill variations</li>
+                    </ul>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <h4 className="font-medium flex items-center gap-2">
+                      <ClipboardList className="h-4 w-4" />
+                      Tasks File
+                    </h4>
+                    <ul className="text-sm text-gray-600 space-y-1">
+                      <li>• Required: TaskID, TaskName, Duration, MaxConcurrent</li>
+                      <li>• Include RequiredSkills and PreferredPhases</li>
+                      <li>• Dependencies as comma-separated</li>
+                      <li>• AI maps complex relationships</li>
+                    </ul>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
-        </Tabs>
 
-        {/* Upload Guide */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Upload Guidelines</CardTitle>
-            <CardDescription>
-              Follow these guidelines for best results
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-2">
-                <h4 className="font-medium flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Clients File
-                </h4>
-                <ul className="text-sm text-gray-600 space-y-1">
-                  <li>• Required: ID, Name, Priority (1-5)</li>
-                  <li>• Optional: Email, Phone, Address</li>
-                  <li>• Attributes can be JSON format</li>
-                </ul>
-              </div>
+          <TabsContent value="debug" className="space-y-6">
+            <FileUploadDebug onFileProcessed={handleDebugFileProcessed} />
+          </TabsContent>
+
+          {totalEntities > 0 && (
+            <TabsContent value="grids" className="space-y-6">
+              {clients.length > 0 && (
+                <DataGrid
+                  entityType="clients"
+                  data={clients}
+                  onDataChange={setClients}
+                />
+              )}
               
-              <div className="space-y-2">
-                <h4 className="font-medium flex items-center gap-2">
-                  <UserCheck className="h-4 w-4" />
-                  Workers File
-                </h4>
-                <ul className="text-sm text-gray-600 space-y-1">
-                  <li>• Required: ID, Name, Skills</li>
-                  <li>• Skills can be comma-separated</li>
-                  <li>• Include max concurrent tasks</li>
-                </ul>
-              </div>
+              {workers.length > 0 && (
+                <DataGrid
+                  entityType="workers"
+                  data={workers}
+                  onDataChange={setWorkers}
+                />
+              )}
               
-              <div className="space-y-2">
-                <h4 className="font-medium flex items-center gap-2">
-                  <ClipboardList className="h-4 w-4" />
-                  Tasks File
-                </h4>
-                <ul className="text-sm text-gray-600 space-y-1">
-                  <li>• Required: ID, Name, Client ID</li>
-                  <li>• Include priority and duration</li>
-                  <li>• Dependencies as comma-separated</li>
-                </ul>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              {tasks.length > 0 && (
+                <DataGrid
+                  entityType="tasks"
+                  data={tasks}
+                  onDataChange={setTasks}
+                />
+              )}
+            </TabsContent>
+          )}
+
+          {totalEntities > 0 && (
+            <TabsContent value="search" className="space-y-6">
+              <NaturalLanguageSearch />
+            </TabsContent>
+          )}
+        </Tabs>
       </div>
     </MainLayout>
   );

@@ -24,16 +24,20 @@ import {
   Users,
   Clock,
   MapPin,
-  Zap
+  Zap,
+  Lightbulb
 } from 'lucide-react';
 import { useDataStore } from '@/lib/store';
 import { BusinessRule } from '@/lib/types';
+import { RuleConfigurator } from '@/components/rules/rule-configurator';
+import { RuleRecommendations } from '@/components/rules/rule-recommendations';
 import { toast } from 'sonner';
 
 export default function RulesPage() {
   const { businessRules, addBusinessRule, updateBusinessRule, removeBusinessRule } = useDataStore();
   const [isCreating, setIsCreating] = useState(false);
   const [editingRule, setEditingRule] = useState<string | null>(null);
+  const [configuringRule, setConfiguringRule] = useState<Partial<BusinessRule> | null>(null);
   const [newRule, setNewRule] = useState<Partial<BusinessRule>>({
     name: '',
     description: '',
@@ -57,18 +61,26 @@ export default function RulesPage() {
       return;
     }
 
+    setConfiguringRule(newRule);
+    setIsCreating(false);
+  };
+
+  const handleSaveConfiguredRule = () => {
+    if (!configuringRule) return;
+
     const rule: BusinessRule = {
       id: `rule-${Date.now()}`,
-      name: newRule.name,
-      description: newRule.description,
-      type: newRule.type as BusinessRule['type'],
-      conditions: newRule.conditions || {},
-      actions: newRule.actions || {},
-      active: newRule.active ?? true,
+      name: configuringRule.name!,
+      description: configuringRule.description!,
+      type: configuringRule.type as BusinessRule['type'],
+      conditions: configuringRule.conditions || {},
+      actions: configuringRule.actions || {},
+      active: configuringRule.active ?? true,
       createdAt: new Date()
     };
 
     addBusinessRule(rule);
+    setConfiguringRule(null);
     setNewRule({
       name: '',
       description: '',
@@ -77,8 +89,12 @@ export default function RulesPage() {
       actions: {},
       active: true
     });
-    setIsCreating(false);
     toast.success('Business rule created successfully');
+  };
+
+  const handleCancelConfiguration = () => {
+    setConfiguringRule(null);
+    setIsCreating(false);
   };
 
   const handleToggleRule = (id: string, active: boolean) => {
@@ -162,12 +178,23 @@ export default function RulesPage() {
         <Tabs defaultValue="rules" className="space-y-4">
           <TabsList>
             <TabsTrigger value="rules">Rules Management</TabsTrigger>
+            <TabsTrigger value="recommendations">AI Recommendations</TabsTrigger>
             <TabsTrigger value="templates">Rule Templates</TabsTrigger>
           </TabsList>
 
           <TabsContent value="rules" className="space-y-4">
+            {/* Rule Configurator */}
+            {configuringRule && (
+              <RuleConfigurator
+                rule={configuringRule}
+                onRuleChange={setConfiguringRule}
+                onSave={handleSaveConfiguredRule}
+                onCancel={handleCancelConfiguration}
+              />
+            )}
+
             {/* Create New Rule */}
-            {isCreating && (
+            {isCreating && !configuringRule && (
               <Card>
                 <CardHeader>
                   <CardTitle>Create New Rule</CardTitle>
@@ -230,8 +257,8 @@ export default function RulesPage() {
 
                   <div className="flex gap-2">
                     <Button onClick={handleCreateRule} className="gap-2">
-                      <Save className="h-4 w-4" />
-                      Create Rule
+                      <Settings className="h-4 w-4" />
+                      Configure Rule
                     </Button>
                     <Button variant="outline" onClick={() => setIsCreating(false)} className="gap-2">
                       <X className="h-4 w-4" />
@@ -284,6 +311,11 @@ export default function RulesPage() {
                         <div className="flex items-center justify-between">
                           <div className="text-sm text-gray-600">
                             Created: {rule.createdAt.toLocaleDateString()}
+                            {Object.keys(rule.conditions).length > 0 && (
+                              <span className="ml-4">
+                                Conditions: {Object.keys(rule.conditions).length}
+                              </span>
+                            )}
                           </div>
                           <div className="flex gap-2">
                             <Switch
@@ -311,6 +343,10 @@ export default function RulesPage() {
                 })
               )}
             </div>
+          </TabsContent>
+
+          <TabsContent value="recommendations" className="space-y-4">
+            <RuleRecommendations />
           </TabsContent>
 
           <TabsContent value="templates" className="space-y-4">

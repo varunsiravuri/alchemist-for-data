@@ -1,37 +1,48 @@
 export interface Client {
-  id: string;
-  name: string;
+  id: string; // ClientID
+  name: string; // ClientName
+  priority: number; // PriorityLevel (1-5)
+  requestedTaskIds: string[]; // RequestedTaskIDs (comma-separated)
+  groupTag?: string; // GroupTag
+  attributesJson?: string; // AttributesJSON
+  // Legacy fields for backward compatibility
   email?: string;
   phone?: string;
   address?: string;
-  priority: number;
-  attributesJson?: string;
   createdAt?: string;
 }
 
 export interface Worker {
-  id: string;
-  name: string;
+  id: string; // WorkerID
+  name: string; // WorkerName
+  skills: string[]; // Skills (comma-separated tags)
+  availableSlots: number[]; // AvailableSlots (array of phase numbers)
+  maxLoadPerPhase: number; // MaxLoadPerPhase
+  workerGroup?: string; // WorkerGroup
+  qualificationLevel?: number; // QualificationLevel
+  // Legacy fields for backward compatibility
   email?: string;
-  skills: string[];
-  availability: string;
-  maxConcurrentTasks: number;
+  availability?: string;
+  maxConcurrentTasks?: number;
   hourlyRate?: number;
   preferredPhases?: number[];
   attributesJson?: string;
 }
 
 export interface Task {
-  id: string;
-  name: string;
-  clientId: string;
+  id: string; // TaskID
+  name: string; // TaskName
+  category?: string; // Category
+  duration: number; // Duration (number of phases ≥1)
+  requiredSkills: string[]; // RequiredSkills (comma-separated tags)
+  preferredPhases?: number[]; // PreferredPhases (list or range syntax)
+  maxConcurrent: number; // MaxConcurrent (max parallel assignments)
+  // Legacy fields for backward compatibility
+  clientId?: string;
   description?: string;
-  priority: number;
-  duration: number;
-  requiredSkills: string[];
-  preferredPhases?: number[];
+  priority?: number;
   dependencies?: string[];
-  status: 'pending' | 'in-progress' | 'completed' | 'cancelled';
+  status?: 'pending' | 'in-progress' | 'completed' | 'cancelled';
   estimatedHours?: number;
   attributesJson?: string;
 }
